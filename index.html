@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>من نص إلى PDF</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap">
+<style>
+:root{color-scheme:light dark;--bg:#f3f5f7;--sf:#fff;--ink:#14202b;--mu:#5b6b7a;--ac:#0b6e6e;--on:#fff;--ln:#d5dce2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12181d;--sf:#1b242b;--ink:#e8eef2;--mu:#9aabb8;--ac:#4fc3c3;--on:#0b1a1a;--ln:#2c3943}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#12181d;--sf:#1b242b;--ink:#e8eef2;--mu:#9aabb8;--ac:#4fc3c3;--on:#0b1a1a;--ln:#2c3943}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.6 Cairo,Tahoma,sans-serif}
+main{max-width:720px;margin:0 auto;padding:20px 16px 32px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--mu);margin:0 0 14px;font-size:14px}
+#ed{min-height:52vh;max-height:70vh;overflow:auto;background:var(--sf);border:1px solid var(--ln);border-radius:8px;padding:12px;outline:none;white-space:pre-wrap;word-break:break-word}
+#ed:focus{border-color:var(--ac)}
+#ed.e::before{content:attr(data-ph);color:var(--mu)}
+#ed *{background:none!important;color:inherit!important;max-width:100%}
+#ed img,#ed canvas{display:none}
+#ed table{border-collapse:collapse}#ed td,#ed th{border:1px solid var(--ln);padding:4px 8px}
+.row{display:flex;gap:10px;margin-top:12px}
+button{font:700 16px Cairo,Tahoma,sans-serif;border-radius:8px;padding:12px 16px;cursor:pointer;border:1px solid var(--ln);background:var(--sf);color:var(--ink)}
+#go{flex:1;background:var(--ac);color:var(--on);border-color:var(--ac)}
+button:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+#st{min-height:24px;margin:10px 0 0;color:var(--mu);font-size:14px}
+#ov{position:fixed;inset:0;z-index:50;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center}
+#ov.on{display:flex}
+.sp{width:34px;height:34px;border:3px solid var(--ln);border-top-color:var(--ac);border-radius:50%;animation:r 1s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.sp{animation-duration:3s}}
+/* hidden render surface: always white page, black ink */
+#rend{position:fixed;top:0;left:0;z-index:-1;direction:rtl}
+.pg{width:21cm;height:29.7cm;padding:1.27cm;box-sizing:border-box;background:#fff;color:#000;overflow:hidden}
+.pg,.fl{font:400 18pt/1.8 Cairo,Tahoma,sans-serif}
+.fl{width:18.46cm;display:flow-root;direction:rtl}
+.fl>*{margin:.5em 0 0}
+.fl>.h{font-size:20pt;font-weight:700;margin-top:.8em}
+.fl>.gap{height:.6em}
+.in{height:27.16cm;overflow:hidden}
+
+
+.pg b{font-weight:700}.pg i{font-style:italic}
+.li{display:flex;gap:.5em}.li .m{flex:none}
+.tb{width:100%;border-collapse:collapse}
+.tb td{border:1px solid #444;padding:.25em .5em;vertical-align:top;word-break:break-word}
+</style>
+</head>
+<body>
+<main>
+  <h1>من نص إلى PDF</h1>
+  <p class="sub">الصق النص كما هو من الصفحة ليبقى العريض والمائل والعناوين والجداول. A4، النص 18، العناوين 20، الهوامش 1.27 سم.</p>
+  <div id="ed" class="e" contenteditable="true" data-ph="ضع النص هنا" role="textbox" aria-label="ضع النص هنا"></div>
+  <div class="row"><button id="go">تحويل إلى PDF</button><button id="clr">مسح</button></div>
+  <p id="st" role="status"></p>
+</main>
+<div id="ov"><div class="sp"></div><div id="ovt">جارٍ التجهيز…</div></div>
+<div id="rend"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), ed=$('ed');
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const tx=h=>h.replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').trim();
+const say=m=>{$('st').textContent=m};
+ed.addEventListener('input',()=>{say('');ed.classList.toggle('e',!ed.textContent.trim()&&!ed.querySelector('table'))});
+/* عند اللصق: نحتفظ بالبنية والعريض والمائل فقط، ونمسح الخلفيات والألوان والأحجام من الموقع المنسوخ منه */
+ed.addEventListener('paste',e=>{
+  const h=e.clipboardData&&e.clipboardData.getData('text/html');if(!h)return;
+  e.preventDefault();
+  const d=new DOMParser().parseFromString(h,'text/html');
+  d.querySelectorAll('script,style,svg,button,mat-icon,img,canvas,meta,link,title').forEach(x=>x.remove());
+  d.body.querySelectorAll('*').forEach(x=>{
+    const s=x.style,w=s.fontWeight,
+      b=!/^(B|STRONG)$/.test(x.tagName)&&(w==='bold'||+w>=600),
+      i=!/^(I|EM)$/.test(x.tagName)&&s.fontStyle==='italic';
+    [...x.attributes].forEach(a=>{if(!(x.tagName==='OL'&&a.name==='start'))x.removeAttribute(a.name)});
+    for(const [on,tg] of [[b,'b'],[i,'i']])if(on){const n=d.createElement(tg);while(x.firstChild)n.appendChild(x.firstChild);x.appendChild(n)}});
+  if(!document.execCommand('insertHTML',false,d.body.innerHTML))ed.insertAdjacentHTML('beforeend',d.body.innerHTML);
+  ed.dispatchEvent(new Event('input'))});
+$('clr').onclick=()=>{ed.innerHTML='';ed.classList.add('e');say('')};
+
+/* سطور الواجهة التي تُحذف من أول النص وآخره */
+const JUNK=[/^skip to main content$/i,/^playground$/i,/^[\d,.]+\s*tokens$/i,/^(model|user)?\s*\d{1,2}:\d{2}\s*(am|pm)?$/i,/^model$/i,/^(thinking|thoughts|thinkingthoughts)$/i,/^expand to view model thoughts$/i,/^chevron_right$/i,/^info$/i,/^google ai models may make mistakes/i,/^use arrow up and arrow down/i,/^start typing a prompt$/i,/^response ready\.?$/i,/^تبلغ المدة التقريبية.*(المذكرة|الرد)/];
+
+function inl(n){let s='';for(const c of n.childNodes){
+  if(c.nodeType===3){s+=esc(c.textContent.replace(/\s+/g,' '));continue}
+  if(c.nodeType!==1)continue;const t=c.tagName;
+  if(/^(SCRIPT|STYLE|svg|BUTTON|MAT-ICON)$/i.test(t))continue;
+  if(t==='BR'){s+='<br>';continue}
+  let x=inl(c);if(!x)continue;const st=c.style||{},w=st.fontWeight;
+  if(/^(B|STRONG)$/.test(t)||w==='bold'||+w>=600)x='<b>'+x+'</b>';
+  if(/^(I|EM)$/.test(t)||st.fontStyle==='italic')x='<i>'+x+'</i>';
+  if(t==='U'||/underline/.test(st.textDecoration||''))x='<u>'+x+'</u>';
+  s+=x}return s}
+
+function parse(root){
+  const out=[];let buf='';
+  const flush=()=>{if(tx(buf))out.push({t:'p',h:buf});buf=''};
+  const BL='p,div,h1,h2,h3,h4,h5,h6,ul,ol,table,li,blockquote';
+  function list(u,d){let i=(+u.getAttribute('start')||1)-1;const ol=u.tagName==='OL';
+    for(const li of u.children){if(li.tagName!=='LI')continue;i++;
+      const cp=li.cloneNode(true);cp.querySelectorAll('ul,ol').forEach(x=>x.remove());
+      const h=inl(cp);if(tx(h))out.push({t:'li',h,d,m:ol?i+'.':'•'});
+      for(const s of li.children)if(/^(UL|OL)$/.test(s.tagName))list(s,d+1)}}
+  function walk(n){const hb=[...n.children].some(x=>/^(P|DIV|H[1-6]|UL|OL|TABLE|LI|BLOCKQUOTE|SECTION|ARTICLE|PRE)$/.test(x.tagName));for(const c of n.childNodes){
+    if(c.nodeType===3){buf+=esc(c.textContent.replace(/\s+/g,' '));continue}
+    if(c.nodeType!==1)continue;const t=c.tagName;
+    if(/^H[1-6]$/.test(t)){flush();const h=inl(c);if(tx(h))out.push({t:'h',h})}
+    else if(t==='UL'||t==='OL'){flush();list(c,0)}
+    else if(t==='TABLE'){flush();c.querySelectorAll('tr').forEach(tr=>{
+      const cs=[...tr.children].filter(x=>/^T[DH]$/.test(x.tagName)).map(x=>x.tagName==='TH'?'<b>'+inl(x)+'</b>':inl(x));
+      if(cs.length)out.push({t:'tr',c:cs})})}
+    else if(t==='BR')flush();
+    else if(c.querySelector(BL)){flush();walk(c);flush()}
+    else if(/^(P|DIV|BLOCKQUOTE|SECTION|ARTICLE|PRE|LI)$/.test(t)||(hb&&t.includes('-'))){flush();buf=inl(c);flush()}
+    else if(t==='BR')flush();
+    else if(!/^(SCRIPT|STYLE|BUTTON)$/.test(t))buf+=inl(c)}}
+  walk(root);flush();return out}
+
+const md=h=>h.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\*)/g,'$1<i>$2</i>');
+
+function build(){
+  const plain=!ed.querySelector('p,h1,h2,h3,h4,h5,h6,ul,ol,table,b,strong,i,em,span');
+  const ln=()=>{const o=[];for(const l of ed.innerText.split('\n')){if(l.trim())o.push({t:'p',h:esc(l.trim())});else if(o.length&&o[o.length-1].t!=='sp')o.push({t:'sp'})}return o};
+  let bl=plain?ln():parse(ed);if(!bl.length)bl=ln();
+  bl=bl.flatMap(b=>b.t==='p'?b.h.split(/<br\s*\/?>/).map(h=>({t:'p',h})):[b]);
+  const PH=/(info\s*)?Google AI models may make mistakes,? so double-check outputs\.?|Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat\.?|Expand to view model thoughts|Skip to main content|Start typing a prompt|Response ready\.?/gi;
+  bl.forEach(b=>{if(b.h)b.h=b.h.replace(PH,'')});
+  bl=bl.filter(b=>b.t==='tr'||b.t==='sp'||(tx(b.h)&&!(tx(b.h).length<300&&JUNK.some(r=>r.test(tx(b.h))))));
+  const res=[];
+  for(const b of bl){
+    if(b.t==='p'){let m;
+      if(b.h.includes('\t')){const p=res[res.length-1],c=b.h.split('\t').map(s=>s.trim());
+        res.push({t:'tr',c:(p&&p.tab)?c:c.map(x=>'<b>'+x+'</b>'),tab:1});continue}
+      if(m=b.h.match(/^#{1,6}\s+(.*)/)){res.push({t:'h',h:md(m[1])});continue}
+      if(m=b.h.match(/^[-*•]\s+(.*)/)){res.push({t:'li',h:md(m[1]),d:0,m:'•'});continue}
+      b.h=md(b.h)}
+    res.push(b)}
+  const o=[];
+  for(const b of res){const q=o[o.length-1];
+    if(b.t==='tr'){if(q&&q.t==='tbl')q.r.push(b.c);else o.push({t:'tbl',r:[b.c]})}
+    else if(b.t==='sp'){if(q&&q.t!=='sp')o.push(b)}
+    else o.push(b)}
+  while(o.length&&o[o.length-1].t==='sp')o.pop();
+  return o}
+
+const dr=h=>{const m=tx(h).match(/[A-Za-z\u0590-\u08FF]/);return m&&/[A-Za-z]/.test(m[0])?'ltr':'rtl'};
+function mk(b){const e=document.createElement('div');
+  if(b.t==='sp'){e.className='gap';return e}
+  if(b.t==='tbl'){e.innerHTML='<table class="tb">'+b.r.map(r=>'<tr>'+r.map(c=>'<td dir="'+dr(c)+'" style="text-align:'+(dr(c)==='ltr'?'left':'right')+'">'+c+'</td>').join('')+'</tr>').join('')+'</table>';return e}
+  const d=dr(b.h),a=d==='ltr'?'left':'right';e.dir=d;e.style.textAlign=a;
+  if(b.t==='h'){e.className='h';e.innerHTML=b.h}
+  else if(b.t==='li'){e.className='li';e.style['padding'+(d==='rtl'?'Right':'Left')]=b.d*28+'px';e.innerHTML='<span class="m">'+b.m+'</span><span>'+b.h+'</span>'}
+  else e.innerHTML=b.h;
+  return e}
+
+/* ينزل كل النص في عمود واحد طويل ثم يقطعه على أقرب نهاية سطر أو صف جدول، فلا يضيع أي جزء من النص */
+function flowPages(bl){
+  const root=$('rend');root.innerHTML='';
+  const fl=document.createElement('div');fl.className='fl';
+  bl.forEach(b=>fl.appendChild(mk(b)));root.appendChild(fl);
+  if(fl.firstChild)fl.firstChild.style.marginTop='0';
+  const pr=document.createElement('div');pr.style.cssText='position:absolute;height:27.16cm';root.appendChild(pr);
+  const H=pr.offsetHeight;pr.remove();
+  const f=fl.getBoundingClientRect().top,T=fl.offsetHeight,C=[],TB=[];
+  const rg=document.createRange(),tw=document.createTreeWalker(fl,NodeFilter.SHOW_TEXT);
+  for(let n;n=tw.nextNode();){if(!n.nodeValue.trim()||n.parentElement.closest('table'))continue;
+    rg.selectNodeContents(n);for(const q of rg.getClientRects())if(q.height)C.push((q.top+q.bottom)/2-f)}
+  fl.querySelectorAll('table').forEach(t=>{const q=t.getBoundingClientRect();TB.push([q.top-f,q.bottom-f])});
+  const ok=()=>true;
+  C.sort((a,b)=>a-b);const L=[];for(const c of C){if(L.length&&c-L[L.length-1].e<14)L[L.length-1].e=c;else L.push({s:c,e:c})}
+  const cand=[];for(let i=0;i<L.length-1;i++){const m=(L[i].e+L[i+1].s)/2;if(!TB.some(t=>m>t[0]&&m<t[1]))cand.push(m)}
+  fl.querySelectorAll('tr').forEach(t=>cand.push(t.getBoundingClientRect().bottom-f));cand.sort((a,b)=>a-b);
+  const kids=[...fl.children].map(c=>{const q=c.getBoundingClientRect();return{c,t:q.top-f,b:q.bottom-f,m:parseFloat(getComputedStyle(c).marginTop)||0}});
+  const pages=[];let st=0;
+  while(true){
+    let cut=T;
+    if(T-st>H+1){cut=st+H;
+      for(let i=cand.length-1;i>=0;i--){const c=cand[i];if(c>st+H)continue;if(c<=st+H*.3)break;if(ok(c)){cut=c;break}}}
+    const sub=kids.filter(k=>k.b>st&&k.t<cut);
+    const pg=document.createElement('div'),inn=document.createElement('div'),w=document.createElement('div');
+    pg.className='pg';inn.className='in';w.className='fl';
+    if(sub.length){w.style.marginTop=(sub[0].t-sub[0].m-st)+'px';sub.forEach(k=>w.appendChild(k.c.cloneNode(true)))}
+    inn.appendChild(w);pg.appendChild(inn);pages.push(pg);
+    if(cut>=T)break;st=cut}
+  root.innerHTML='';pages.forEach(p=>root.appendChild(p));return pages}
+
+$('go').onclick=async()=>{
+  const bl=build();if(!bl.length){say('ضع النص أولًا.');return}
+  const ov=$('ov'),ovt=$('ovt');ov.classList.add('on');say('');
+  try{
+    await Promise.all(['400','700'].map(w=>document.fonts.load(w+' 18pt Cairo','ابت abc 123')));
+    const pages=flowPages(bl);await document.fonts.ready;
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'p'});
+    for(let i=0;i<pages.length;i++){
+      ovt.textContent='جارٍ تجهيز الصفحة '+(i+1)+' من '+pages.length;
+      await new Promise(r=>setTimeout(r,20));
+      const cv=await html2canvas(pages[i],{scale:2,backgroundColor:'#fff',scrollX:0,scrollY:0,windowWidth:1000});
+      if(i)pdf.addPage();
+      pdf.addImage(cv.toDataURL('image/jpeg',0.92),'JPEG',0,0,210,297)}
+    $('rend').innerHTML='';
+    const f=(tx(bl.find(b=>b.h)?.h||'')||'document').replace(/[\\/:*?"<>|\n]/g,' ').trim().slice(0,40)||'document';
+    ovt.textContent='جارٍ الحفظ…';
+    const u=URL.createObjectURL(pdf.output('blob'));const a=document.createElement('a');a.href=u;a.download=f+'.pdf';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);
+    say('تم حفظ الملف.')
+  }catch(e){say(e&&e.code==='declined'?'تم إلغاء الحفظ.':'حصل خطأ أثناء التحويل. جرّب مرة ثانية.')}
+  finally{ov.classList.remove('on')}};
+</script>
+</body>
+</html>
