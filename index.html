@@ -44,7 +44,7 @@ button:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
 .pg b{font-weight:700}.pg i{font-style:italic}
 .li{display:flex;gap:.5em}.li .m{flex:none}
 .tb{width:100%;border-collapse:collapse}
-.tb td{border:1px solid #444;padding:.25em .5em;vertical-align:top;word-break:break-word}
+.tb td{border:1px solid #444;padding:.25em .5em;vertical-align:top;overflow-wrap:break-word}
 </style>
 </head>
 <body>
@@ -181,7 +181,7 @@ function flowPages(bl){
       for(let i=cand.length-1;i>=0;i--){const c=cand[i];if(c>st+H)continue;if(c<=st+H*.3)break;if(ok(c)){cut=c;break}}}
     const sub=kids.filter(k=>k.b>st&&k.t<cut);
     const pg=document.createElement('div'),inn=document.createElement('div'),w=document.createElement('div');
-    pg.className='pg';inn.className='in';w.className='fl';
+    pg.className='pg';inn.className='in';inn.style.height=(cut-st)+'px';w.className='fl';
     if(sub.length){w.style.marginTop=(sub[0].t-sub[0].m-st)+'px';sub.forEach(k=>w.appendChild(k.c.cloneNode(true)))}
     inn.appendChild(w);pg.appendChild(inn);pages.push(pg);
     if(cut>=T)break;st=cut}
@@ -201,7 +201,9 @@ $('go').onclick=async()=>{
       if(i)pdf.addPage();
       pdf.addImage(cv.toDataURL('image/jpeg',0.92),'JPEG',0,0,210,297)}
     $('rend').innerHTML='';
-    const f=(tx(bl.find(b=>b.h)?.h||'')||'document').replace(/[\\/:*?"<>|\n]/g,' ').trim().slice(0,40)||'document';
+    let f=tx((bl.find(b=>b.t==='h')||bl.find(b=>b.h)||{}).h||'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\[\d{1,2}:\d{2}(:\d{2})?\]/g,'').replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\uFE0F]/gu,'').replace(/[\\/:*?"<>|\n\r\t]/g,' ').replace(/\s+/g,' ').trim();
+    if(f.length>70){f=f.slice(0,70);const i=f.lastIndexOf(' ');if(i>30)f=f.slice(0,i)}
+    f=f||'document';
     ovt.textContent='جارٍ الحفظ…';
     const u=URL.createObjectURL(pdf.output('blob'));const a=document.createElement('a');a.href=u;a.download=f+'.pdf';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);
     say('تم حفظ الملف.')
