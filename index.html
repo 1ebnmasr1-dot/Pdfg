@@ -9,8 +9,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
 <style>
-:root{color-scheme:light dark;--bg:#f3f5f7;--sf:#fff;--ink:#14202b;--mu:#5b6b7a;--ac:#0b6e6e;--on:#fff;--ln:#d5dce2;box-sizing:border-box}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12181d;--sf:#1b242b;--ink:#e8eef2;--mu:#9aabb8;--ac:#4fc3c3;--on:#0b1a1a;--ln:#2c3943}}
+:root{color-scheme:light dark;--bg:#f3f5f7;--sf:#fff;--ink:#14202b;--mu:#5b6b7a;--ac:#0b6e6e;--on:#fff;--ln:#d5dce2;--hd:#0f4761;box-sizing:border-box}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12181d;--sf:#1b242b;--ink:#e8eef2;--mu:#9aabb8;--ac:#4fc3c3;--on:#0b1a1a;--ln:#2c3943;--hd:#7fc8d6}}
 body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.6 Cairo,Tahoma,sans-serif; padding-bottom: 150px;}
 main{max-width:720px;margin:0 auto;padding:20px 16px 32px}
 h1{font-size:22px;margin:0 0 4px}
@@ -53,7 +53,20 @@ button, .download-link{font:700 16px Cairo,Tahoma,sans-serif;border-radius:8px;p
 #cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top:10px; }
 .bx { height: 30vh; overflow: auto; background: var(--sf); border: 1px solid var(--ln); border-radius: 8px; padding: 8px; font-size: 13px; }
 #prt { display: none; }
-@media print { main, #floating-bar, .tabs, #st { display: none !important; } #prt { display: block !important; } }
+
+/* تنسيق المستند الناتج (معاينة + طباعة) */
+.doc{line-height:1.9;text-align:justify}
+.doc h1,.doc h2,.doc h3,.doc h4,.doc h5,.doc h6{color:var(--hd);line-height:1.5;text-align:right}
+.bx.doc{font-size:14px;line-height:1.8}
+#prt{--hd:#0f4761;--ln:#9aa5ad;color:#000;background:#fff;font:400 14pt/1.9 Cairo,Tahoma,sans-serif}
+@page{size:A4;margin:18mm}
+@media print {
+  html,body{background:#fff !important;color:#000 !important;padding:0 !important}
+  main, #floating-bar, .tabs, #st { display: none !important; }
+  #prt { display: block !important; }
+  #prt table,#prt tr{page-break-inside:avoid}
+  #prt h1,#prt h2,#prt h3,#prt h4{page-break-after:avoid}
+}
 </style>
 </head>
 <body>
@@ -79,7 +92,7 @@ button, .download-link{font:700 16px Cairo,Tahoma,sans-serif;border-radius:8px;p
     </div>
     <div id="cmp" class="c">
       <div class="pn"><h2>قبل</h2><div id="pb" class="bx"></div></div>
-      <div class="pn"><h2>بعد</h2><div id="pa" class="bx"></div></div>
+      <div class="pn"><h2>بعد</h2><div id="pa" class="bx doc"></div></div>
     </div>
   </section>
 </main>
@@ -93,7 +106,7 @@ button, .download-link{font:700 16px Cairo,Tahoma,sans-serif;border-radius:8px;p
     </div>
 </div>
 
-<div id="prt"></div>
+<div id="prt" class="doc"></div>
 
 <script>
 const $=id=>document.getElementById(id), ed=$('ed');
@@ -121,7 +134,8 @@ ed.addEventListener('paste', e => {
 
 $('clr').onclick=()=>{ed.innerHTML='';ed.dispatchEvent(new Event('input'))};
 
-// 2. محرك التحليل (The Original Parser) - للحفاظ على التنسيق
+// 2. محرك التحليل - للحفاظ على التنسيق
+const BLK=/^(P|DIV|LI|UL|OL|H[1-6]|BLOCKQUOTE|TR|PRE|SECTION|ARTICLE)$/;
 function inl(n){let s='';for(const c of n.childNodes){
   if(c.nodeType===3){s+=esc(c.textContent.replace(/\s+/g,' '));continue}
   if(c.nodeType!==1)continue;const t=c.tagName;
@@ -130,37 +144,158 @@ function inl(n){let s='';for(const c of n.childNodes){
   let x=inl(c);if(!x)continue;const st=c.style||{},w=st.fontWeight;
   if(/^(B|STRONG)$/.test(t)||w==='bold'||+w>=600)x='<b>'+x+'</b>';
   if(/^(I|EM)$/.test(t)||st.fontStyle==='italic')x='<i>'+x+'</i>';
-  s+=x}return s}
+  // العناصر الكتلية جوه سطر (فقرات/قوائم داخل خلية مثلاً): فاصل سطر عشان الجمل ماتلزقش
+  if(BLK.test(t)){ if(s&&!/<br>$/.test(s))s+='<br>'; s+=x+'<br>'; }
+  else s+=x}
+  return s.replace(/(<br>)+$/,'')}
+const inlNode=c=>inl({childNodes:[c]});
 
 function parse(root){
   const out=[];let buf='';
   const flush=()=>{if(tx(buf))out.push({t:'p',h:buf});buf=''};
-  const BL='p,div,h1,h2,h3,h4,h5,h6,ul,ol,table,li,blockquote';
+  const BL='p,div,h1,h2,h3,h4,h5,h6,ul,ol,table,li,blockquote,hr';
+
+  // قوائم: كل بند في سطر مستقل + القوائم المتداخلة بمستوى (lv) بدل ما تتلزق في بعض
+  function lst(el,lv){
+    let k=0;
+    [...el.children].forEach(li=>{
+      if(li.tagName!=='LI')return;
+      const m=el.tagName==='OL'?((parseInt(el.getAttribute('start'))||1)+k)+'.':(lv?'◦':'•'); k++;
+      let lb='';
+      const put=()=>{if(tx(lb))out.push({t:'li',h:lb,m:m,lv:lv});lb=''};
+      (function it(n){
+        for(const c of n.childNodes){
+          if(c.nodeType===3){lb+=esc(c.textContent.replace(/\s+/g,' '));continue}
+          if(c.nodeType!==1)continue;const t=c.tagName;
+          if(/^(SCRIPT|STYLE|BUTTON)$/.test(t))continue;
+          if(t==='UL'||t==='OL'){put();lst(c,lv+1)}
+          else if(t==='BR')lb+='<br>';
+          else if(c.querySelector('ul,ol'))it(c);
+          else if(/^(P|DIV|BLOCKQUOTE|H[1-6]|PRE)$/.test(t)){const x=inl(c);if(tx(x))lb+=(tx(lb)?'<br>':'')+x}
+          else lb+=inlNode(c)}
+      })(li);
+      put();
+    });
+  }
+
   function walk(n){const hb=[...n.children].some(x=>/^(P|DIV|H[1-6]|UL|OL|TABLE|LI|BLOCKQUOTE|SECTION|ARTICLE|PRE)$/.test(x.tagName));for(const c of n.childNodes){
     if(c.nodeType===3){buf+=esc(c.textContent.replace(/\s+/g,' '));continue}
     if(c.nodeType!==1)continue;const t=c.tagName;
-    if(/^H[1-6]$/.test(t)){flush();const h=inl(c);if(tx(h))out.push({t:'h',h:h})}
-    else if(t==='UL'||t==='OL'){flush();/* simplified list for speed */ out.push({t:'li', h:inl(c), m:'•'}); flush();}
-    else if(t==='TABLE'){flush();c.querySelectorAll('tr').forEach(tr=>{const cs=[...tr.children].map(x=>inl(x));if(cs.length)out.push({t:'tr',c:cs})})}
+    if(/^H[1-6]$/.test(t)){flush();const h=inl(c);if(tx(h))out.push({t:'h',h:h,l:+t[1]})}
+    else if(t==='UL'||t==='OL'){flush();lst(c,0)}
+    else if(t==='TABLE'){flush();
+      const rows=[...c.querySelectorAll('tr')].map(tr=>[...tr.children].map(x=>inl(x))).filter(r=>r.length);
+      if(rows.length)out.push({t:'tbl',rows:rows,hd:!!(c.querySelector('tr th'))})}
+    else if(t==='HR'){flush();out.push({t:'hr'})}
     else if(t==='BR')flush();
     else if(c.querySelector(BL)){flush();walk(c);flush()}
     else if(/^(P|DIV|BLOCKQUOTE|SECTION|ARTICLE|PRE|LI)$/.test(t)||(hb&&t.includes('-'))){flush();buf=inl(c);flush()}
-    else if(!/^(SCRIPT|STYLE|BUTTON)$/.test(t))buf+=inl(c)}}
+    else if(!/^(SCRIPT|STYLE|BUTTON)$/.test(t))buf+=inlNode(c)}}
   walk(root);flush();return out}
 
+// 2.5 إزالة نصوص واجهة AI Studio الثابتة (بتظهر أول وآخر كل محاضرة، والأرقام فيها بتتغير)
+const SP='(?:\\s|&nbsp;|<[^>]*>)*', SPR='(?:\\s|&nbsp;|<[^>]*>)+';
+const lw=s=>s.split(' ').map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join(SPR);
+const ANY='(?:[^<\\n]|<[^>]*>)';
+// عبارات مميزة: بتتشال من أي مكان
+const STRONG=[
+  'Model'+SP+'\\d{1,2}:\\d{2}(?:'+SP+'[ap]\\.?m\\.?)?',
+  lw('Expand to view model thoughts'),
+  lw('Google AI models may make mistakes, so double-check outputs')+'\\.?',
+  lw('Use Arrow Up and Arrow Down')+ANY+'{0,200}?'+lw('return to the chat')+'\\.?',
+  lw('Response ready')+'\\.?',
+  lw('تبلغ المدة التقريبية لهذا التسجيل')+'(?:'+ANY+'{0,400}?مخل\\.?|(?:[^<\\n.]|<[^>]*>){0,300}\\.?)',
+  '\\b(?:chevron_(?:right|left)|expand_(?:more|less)|content_copy|thumb_(?:up|down)|more_(?:vert|horiz)|keyboard_arrow_\\w+)\\b'
+].map(x=>new RegExp(x,'gi'));
+// كلمات عامة: بتتشال بس لو لوحدها في سطر، أو ملاصقة لنص AI Studio في أول/آخر السطر
+const WK='(?:[Pp]layground|[\\d٠-٩][\\d٠-٩.,٬٫]*'+SP+'tokens?|[Tt]houghts?|info|\\d{1,2}:\\d{2}'+SP+'[ap]\\.?m\\.?)';
+const WKT='(?:<[bi]>)*'+WK+'(?:</[bi]>)*';
+const EDGE_S=new RegExp('^(?:\\s|&nbsp;|<br>|'+WKT+')+','i');
+const EDGE_E=new RegExp('(?:\\s|&nbsp;|<br>|'+WKT+')+$','i');
+const WEAK_ONLY=/^(?:\s|[Pp]layground|[\d٠-٩][\d٠-٩.,٬٫]*\s*tokens?|[Tt]houghts?|info|Model|\d{1,2}:\d{2}\s*[ap]\.?m\.?)*$/i;
+
+function stripJunk(b){
+  if(b.t==='tbl'||b.t==='hr') return b;
+  let h=b.h, hit=false;
+  STRONG.forEach(re=>{h=h.replace(re,()=>{hit=true;return ' '})});
+  if(hit){
+    h=h.replace(EDGE_S,'').replace(EDGE_E,'');
+    const t=document.createElement('template'); t.innerHTML=h; h=t.innerHTML; // يقفل أي وسم اتقطع
+  }
+  h=h.replace(/\s{2,}/g,' ').replace(/^(\s|<br>)+|(\s|<br>)+$/g,'');
+  if(WEAK_ONLY.test(tx(h))) return null;
+  return Object.assign({},b,{h:h});
+}
+
 // 3. التجهيز
-function build(){ return parse(ed); }
+function build(){
+  const bl=parse(ed).map(stripJunk).filter(Boolean);
+  // شيل الفواصل (hr) المكررة أو اللي في أول/آخر المستند
+  return bl.filter((b,i)=>b.t!=='hr'||(i>0&&i<bl.length-1&&bl[i-1].t!=='hr'));
+}
+
+// عرض الناتج (معاينة/طباعة/نسخ). paper=true: ألوان ثابتة للنسخ للـ Word
+function render(bl,paper){
+  const hc=paper?'color:#0f4761;':'', bd='border:1px solid #9aa5ad;padding:8px 10px;vertical-align:top;text-align:right;';
+  return bl.map(b=>{
+    if(b.t==='hr') return '<hr style="border:0;border-top:1px solid #9aa5ad;width:60%;margin:22px auto">';
+    if(b.t==='h'){const l=Math.min(b.l||2,6);
+      return '<h'+l+' dir="rtl" style="'+hc+'margin:22px 0 10px;text-align:right">'+b.h+'</h'+l+'>'}
+    if(b.t==='li') return '<div dir="rtl" style="margin:0 '+(8+(b.lv||0)*28)+'px 8px 0;text-align:justify;line-height:1.9">'+(b.m||'•')+'&nbsp; '+b.h+'</div>';
+    if(b.t==='tbl') return '<table dir="rtl" style="width:100%;border-collapse:collapse;margin:12px 0 18px">'+
+      b.rows.map((r,i)=>'<tr>'+r.map(c=>(b.hd&&i===0?'<th style="'+bd+'font-weight:bold">':'<td style="'+bd+'">')+c+(b.hd&&i===0?'</th>':'</td>')).join('')+'</tr>').join('')+'</table>';
+    return '<p dir="rtl" style="margin:0 0 12px;line-height:1.9;text-align:justify">'+b.h+'</p>';
+  }).join('');
+}
 
 // 4. توليد Word
+function runsOf(h,o){
+  o=o||{}; const { TextRun } = docx, out=[];
+  const t=document.createElement('template'); t.innerHTML=h;
+  (function w(n,b,i){
+    n.childNodes.forEach(c=>{
+      if(c.nodeType===3){ if(c.textContent) out.push(new TextRun({ text:c.textContent, bold:b||undefined, italics:i||undefined,
+        boldComplexScript:b||undefined, italicsComplexScript:i||undefined, rightToLeft:true, color:o.color })); }
+      else if(c.nodeType===1){
+        if(c.tagName==='BR'){ out.push(new TextRun({ break:1 })); return; }
+        w(c, b||/^(B|STRONG)$/.test(c.tagName), i||/^(I|EM)$/.test(c.tagName));
+      }
+    });
+  })(t.content,!!o.bold,false);
+  return out;
+}
 async function generateWordBlob(bl){
-  const { Document, Packer, Paragraph, TextRun, AlignmentType } = docx;
-  const children = bl.map(b => {
-    const text = b.h || '';
-    if(b.t==='h') return new Paragraph({ text: text, heading: 1, alignment: AlignmentType.RIGHT, bidirectional: true });
-    if(b.t==='li') return new Paragraph({ text: '• ' + text, alignment: AlignmentType.RIGHT, bidirectional: true });
-    return new Paragraph({ text: text, alignment: AlignmentType.RIGHT, bidirectional: true });
+  const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, Table, TableRow, TableCell, WidthType, BorderStyle } = docx;
+  const HL=[null,HeadingLevel.HEADING_1,HeadingLevel.HEADING_2,HeadingLevel.HEADING_3,HeadingLevel.HEADING_4,HeadingLevel.HEADING_5,HeadingLevel.HEADING_6];
+  const J=AlignmentType.JUSTIFIED, kids=[];
+  bl.forEach(b=>{
+    if(b.t==='hr'){
+      kids.push(new Paragraph({ bidirectional:true, spacing:{before:120,after:240},
+        border:{bottom:{style:BorderStyle.SINGLE,size:6,color:'9AA5AD',space:1}}, children:[] }));
+    } else if(b.t==='tbl'){
+      const n=Math.max(...b.rows.map(r=>r.length)), cw=Math.floor(9000/n);
+      kids.push(new Table({ width:{size:9000,type:WidthType.DXA}, columnWidths:Array(n).fill(cw), visuallyRightToLeft:true,
+        rows:b.rows.map((r,i)=>new TableRow({ children:Array.from({length:n},(_,j)=>new TableCell({
+          width:{size:cw,type:WidthType.DXA},
+          margins:{top:80,bottom:80,left:100,right:100},
+          children:[new Paragraph({ bidirectional:true, spacing:{after:60,line:320}, children:runsOf(r[j]||'',{bold:b.hd&&i===0}) })]
+        })) })) }));
+      kids.push(new Paragraph({ spacing:{after:160}, children:[] }));
+    } else if(b.t==='h'){
+      kids.push(new Paragraph({ heading:HL[Math.min(b.l||2,6)], bidirectional:true, spacing:{before:360,after:160},
+        children:runsOf(b.h,{bold:true,color:'0F4761'}) }));
+    } else if(b.t==='li'){
+      kids.push(new Paragraph({ bidirectional:true, alignment:J, spacing:{after:140,line:360},
+        indent:{left:360+(b.lv||0)*420, hanging:300},
+        children:[new TextRun({text:(b.m||'•')+' ',rightToLeft:true})].concat(runsOf(b.h)) }));
+    } else {
+      kids.push(new Paragraph({ bidirectional:true, alignment:J, spacing:{after:200,line:360}, children:runsOf(b.h) }));
+    }
   });
-  const doc = new Document({ sections: [{ children }] });
+  const doc = new Document({
+    styles:{ default:{ document:{ run:{ font:'Arial', size:24, sizeComplexScript:24 } } } },
+    sections: [{ children: kids }]
+  });
   return await Packer.toBlob(doc);
 }
 
@@ -170,13 +305,7 @@ $('go').onclick = async () => {
   if(bl.length === 0) { say('أضف نصاً أولاً'); return; }
 
   $('pb').textContent = ed.innerText;
-  $('pa').innerHTML = '';
-  bl.forEach(b => {
-    const d = document.createElement('div');
-    d.innerHTML = b.h;
-    if(b.t==='h') d.style.fontWeight = 'bold';
-    $('pa').appendChild(d);
-  });
+  $('pa').innerHTML = render(bl,false);
   $('rs').hidden = false;
 
   // PDF
@@ -196,9 +325,8 @@ $('go').onclick = async () => {
     
     // --- الزر المطلوب: نسخ النص المخرَج فقط بالتنسيق ---
     $('btn-copy').onclick = async () => {
-      const target = $('pa'); // ننسخ من خانة "بعد" حصراً
-      const htmlContent = target.innerHTML;
-      const textContent = target.innerText;
+      const htmlContent = '<div dir="rtl">'+render(bl,true)+'</div>'; // نفس الناتج بألوان ثابتة للصق في Word
+      const textContent = $('pa').innerText;
 
       try {
         const blobHtml = new Blob([htmlContent], { type: 'text/html' });
